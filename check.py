@@ -56,7 +56,7 @@ def convert_japanese_date(text):
 
 def load_missing_periods(filepath):
     periods = []
-    with open(filepath, 'r', encoding='utf-8') as f:
+    with open(filepath, 'r', encoding='utf-8-sig') as f:
         for line in f:
             match = re.match(r"(\d{4}-\d{2}-\d{2}) ～ (\d{4}-\d{2}-\d{2})", line)
             if match:
@@ -76,32 +76,24 @@ def filter_missed_data_and_log(csv_path, missing_period_path, missed_csv_path, r
     matched_rows = []
     result_lines = []
 
-    last_valid_date = None
-    last_valid_weekday = None
+    prev_date, prev_weekday = None, None
 
-    with open(csv_path, 'r', encoding='utf-8') as infile:
+    with open(csv_path, 'r', encoding='utf-8-sig') as infile:
         reader = csv.DictReader(infile)
         fieldnames = reader.fieldnames + ['detected_date', 'weekday']
         for i, row in enumerate(reader):
             text = row.get('display_text', '')
             detected_date, weekday = convert_japanese_date(text)
 
-            inherited = False
             if detected_date:
-                last_valid_date = detected_date
-                last_valid_weekday = weekday
-            elif last_valid_date:
-                detected_date = last_valid_date
-                weekday = last_valid_weekday
-                inherited = True
-            else:
-                result_lines.append(f"Line {i+1}: 日付なし / 抽出失敗 ← {text[:50]}...")
-                continue  # 最初の行など、継承もできない場合はスキップ
-
-            if inherited:
-                result_lines.append(f"Line {i+1}: {detected_date} ({weekday}) ※前の行から継承 ← {text[:50]}...")
-            else:
+                prev_date, prev_weekday = detected_date, weekday
                 result_lines.append(f"Line {i+1}: {detected_date} ({weekday}) ← {text[:50]}...")
+            elif prev_date:
+                detected_date, weekday = prev_date, prev_weekday
+                result_lines.append(f"Line {i+1}: Using previous line's date {detected_date} ({weekday}) ← {text[:50]}...")
+            else:
+                result_lines.append(f"Line {i+1}: No date / failed to extract ← {text[:50]}...")
+                continue
 
             if is_in_missing_periods(detected_date, periods):
                 row['detected_date'] = detected_date.isoformat()
@@ -112,21 +104,25 @@ def filter_missed_data_and_log(csv_path, missing_period_path, missed_csv_path, r
         f.write("\n".join(result_lines))
 
     if matched_rows:
-        with open(missed_csv_path, 'w', newline='', encoding='utf-8') as outfile:
+        with open(missed_csv_path, 'w', newline='', encoding='utf-8-sig') as outfile:
             writer = csv.DictWriter(outfile, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(matched_rows)
-        print(f"✅ 欠損期間内のデータ {len(matched_rows)} 行を保存しました: {missed_csv_path}")
+        print(f"✅ Saved {len(matched_rows)} rows matching missing periods: {missed_csv_path}")
     else:
-        print("✅ 欠損期間内に該当するデータは見つかりませんでした。")
+        print("✅ No data matched missing periods.")
 
-    print(f"📄 抽出結果を保存しました: {result_txt_path}")
+    print(f"📄 Saved result log: {result_txt_path}")
 
-# === 実行 ===
 if __name__ == '__main__':
-    csv_path = 'C:/Users/Administrator/Documents/Workspace/SearchSystemSubMissedCheck/resource/bankcrupcy01/26.csv'
-    missing_period_path = 'C:/Users/Administrator/Documents/Workspace/SearchSystemSubMissedCheck/resource/missing_period.txt'
-    missed_csv_path = 'C:/Users/Administrator/Documents/Workspace/SearchSystemSubMissedCheck/result/missed_data_01_26.csv'
-    result_txt_path = 'C:/Users/Administrator/Documents/Workspace/SearchSystemSubMissedCheck/resource/result.txt'
+    for i in range(2, 32):  # Change to range(19, 32) for 19–31
+        csv_path = f'C:/Users/Administrator/Documents/Workspace/SearchSystemSubMissedCheck/resource/bankcrupcy01/{i}.csv'
+        missing_period_path = 'C:/Users/Administrator/Documents/Workspace/SearchSystemSubMissedCheck/resource/missing_period.txt'
+        missed_csv_path = f'C:/Users/Administrator/Documents/Workspace/SearchSystemSubMissedCheck/result/missed_data(破産)_01_{i}.csv'
+        result_txt_path = f'C:/Users/Administrator/Documents/Workspace/SearchSystemSubMissedCheck/resource/result_{i}.txt'
 
-    filter_missed_data_and_log(csv_path, missing_period_path, missed_csv_path, result_txt_path)
+        print(f"📂 Checking file: {csv_path}")
+        try:
+            filter_missed_data_and_log(csv_path, missing_period_path, missed_csv_path, result_txt_path)
+        except Exception as e:
+            print(f"❌ Error processing file {i}.csv: {e}")
